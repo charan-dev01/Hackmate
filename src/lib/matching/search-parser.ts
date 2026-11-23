@@ -71,15 +71,26 @@ export function parseSearchQuery(raw: string): ParsedQuery {
   const hits = skillMatches(q);
   const explicitBySlug = new Map<string, string>();
   for (const hit of hits) explicitBySlug.set(hit.slug, hit.name);
-  const excludedSkills = normalizeSemanticSkills(SEMANTIC_TAXONOMY.skills
-    .filter((skill) => [skill.name, skill.slug, ...skill.aliases,
+  const excludedSkillNames = new Set<string>();
+  const exclusionRanges: Array<{ start: number; end: number }> = [];
+  for (const skill of SEMANTIC_TAXONOMY.skills) {
+    const names = [skill.name, skill.slug, ...skill.aliases,
       ...Object.entries(SEMANTIC_TAXONOMY.aliases)
-        .filter(([, slug]) => slug === skill.slug).map(([alias]) => alias),
-    ].some((name) => {
+        .filter(([, slug]) => slug === skill.slug).map(([alias]) => alias)];
+    for (const name of names) {
       const match = boundaryPattern(normalizedQuery(name)).exec(normalized);
-      return !!match && isNegated(normalized, match.index + match[1].length);
-    }))
-    .map((skill) => skill.name));
+      if (!match) continue;
+      const start = match.index + match[1].length;
+      if (!isNegated(normalized, start)) continue;
+      excludedSkillNames.add(skill.name);
+      const prefix = normalized.slice(0, start);
+      const negation = prefix.match(/\b(?:not|without|avoid|except|excluding|exclude|no)\s+(?:any\s+)?$/i);
+      const rangeStart = negation?.index ?? start;
+      exclusionRanges.push({ start: rangeStart, end: start + match[0].length - match[1].length });
+      break;
+    }
+  }
+  const excludedSkills = normalizeSemanticSkills([...excludedSkillNames]);
   const contextualConcepts = [...new Set(
     CONTEXT_PHRASES.filter(([pattern]) => pattern.test(q)).flatMap(([, concepts]) => concepts),
   )].filter((concept) => !explicitBySlug.has(normalizedQuery(concept).replace(/\s/g, "-")));
@@ -101,7 +112,11 @@ export function parseSearchQuery(raw: string): ParsedQuery {
   const teamIntent = /\bteams?\b/i.test(q) && !peopleIntent;
   const explicitSkills = [...explicitBySlug.values()].sort((a, b) => a.localeCompare(b));
   const consumed = new Set(explicitSkills.flatMap((skill) => normalizedQuery(skill).split(" ")));
-  const terms = normalized.split(" ").filter((term) => term.length > 1 && !consumed.has(term) && !/^\d+$/.test(term));
+  let positiveText = normalized;
+  for (const range of exclusionRanges.sort((left, right) => right.start - left.start)) {
+    positiveText = `${positiveText.slice(0, range.start)} ${positiveText.slice(range.end)}`;
+  }
+  const terms = positiveText.split(" ").filter((term) => term.length > 1 && !consumed.has(term) && !/^\d+$/.test(term));
 
   return {
     raw,

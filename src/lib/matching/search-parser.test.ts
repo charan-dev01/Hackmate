@@ -39,6 +39,12 @@ test("normalizes aliases and preserves negation", () => {
   assert.ok(!parsed.explicitSkills.includes("Docker"));
 });
 
+test("removes exclusion clauses from positive search terms", () => {
+  const parsed = parseSearchQuery("Berlin without React");
+  assert.deepEqual(parsed.excludedSkills, ["React"]);
+  assert.deepEqual(parsed.terms, ["berlin"]);
+});
+
 test("handles empty, long, and duplicate-heavy queries without truncating", () => {
   assert.deepEqual(parseSearchQuery("").explicitSkills, []);
   const parsed = parseSearchQuery(

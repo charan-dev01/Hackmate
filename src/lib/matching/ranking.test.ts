@@ -34,6 +34,23 @@ test("combines explicit matches and availability when semantic data is absent", 
   assert.ok(score > 0.8);
 });
 
+test("requested zero matches remain zero while unrequested criteria stay unavailable", () => {
+  const score = combineScores({
+    semanticScore: null,
+    matchedSkills: [],
+    matchedRoles: [],
+    explicitSkill: 0,
+    role: 0,
+    explicitSkillRequested: true,
+    roleRequested: false,
+    keywordScore: 0,
+    availabilityScore: 1,
+    completenessScore: 1,
+  });
+  assert.ok(score > 0.3);
+  assert.ok(score < 0.5);
+});
+
 test("returns explainable matched skills, roles, and semantic relevance", () => {
   const explanation = explainSearchMatch({
     semanticScore: 0.8,

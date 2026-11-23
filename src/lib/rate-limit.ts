@@ -39,10 +39,10 @@ export interface RateLimitResult {
 
 export function rateLimit(
   req: NextRequest,
-  opts: { key: string; limit: number; windowMs: number },
+  opts: { key: string; limit: number; windowMs: number; identifier?: string },
 ): RateLimitResult {
   const now = Date.now();
-  const id = `${opts.key}:${clientKey(req)}`;
+  const id = `${opts.key}:${opts.identifier ?? clientKey(req)}`;
 
   /* Lazy GC: drop expired buckets; hard-cap tracked keys. */
   if (buckets.size > MAX_TRACKED) {

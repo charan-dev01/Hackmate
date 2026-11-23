@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { UserPlus, Loader2, Search } from "lucide-react";
 import {
@@ -38,6 +38,7 @@ export function InviteDialog({
   const [query, setQuery] = useState("");
   const [invited, setInvited] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState("");
+  const queryClient = useQueryClient();
 
   /* Gap-driven recommendations (server: getPeopleMatchesForTeam). */
   const recs = useQuery({
@@ -62,6 +63,7 @@ export function InviteDialog({
     onSuccess: (_d, vars) => {
       toast.success("Invite sent!");
       setInvited((prev) => new Set([...prev, vars.userId]));
+      void queryClient.invalidateQueries({ queryKey: ["team-invites", teamId] });
     },
     onError: (err: Error) => toast.error(err.message),
   });

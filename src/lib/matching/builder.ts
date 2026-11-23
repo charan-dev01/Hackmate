@@ -98,7 +98,7 @@ export async function buildTeamRecommendation(userId: string, slug: string): Pro
   const profile = await getProfile(userId);
   if (!profile) return null;
 
-  const candidatePeople = await people({ excludeTeamHackathonId: hackathon.id, openToOpportunitiesOnly: true, limit: 100 });
+  const candidatePeople = await people({ excludeTeamHackathonId: hackathon.id, openToOpportunitiesOnly: true, limit: 1000 });
   const eligibleRows = candidatePeople.length > 0
     ? await db
       .select({ id: schema.users.id, openToOpportunities: schema.users.openToOpportunities })
@@ -114,7 +114,8 @@ export async function buildTeamRecommendation(userId: string, slug: string): Pro
       candidate.recruitmentStatus !== "team_full" &&
       candidate.topSkills.length > 0 &&
       candidate.roles.length > 0,
-    );
+    )
+    .slice(0, 100);
   const embeddingRows = candidates.length > 0
     ? await db.select({
       id: schema.users.id,

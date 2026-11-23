@@ -80,12 +80,20 @@ export function cosineSimilarity(left: number[], right: number[]): number | null
 
 export function profileEmbeddingText(input: {
   bio?: string | null;
+  text?: string | null;
   skills: string[];
   roles: string[];
   experienceLevel?: string | null;
   commitment?: string | null;
 }): string {
-  return prepareSemanticText({ ...input, kind: "profile" });
+  return prepareSemanticText({
+    kind: "profile",
+    text: input.text ?? input.bio,
+    skills: input.skills,
+    roles: input.roles,
+    experienceLevel: input.experienceLevel,
+    commitment: input.commitment,
+  });
 }
 
 export function roleEmbeddingText(input: {

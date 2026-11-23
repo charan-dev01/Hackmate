@@ -76,6 +76,7 @@ export async function GET(req: NextRequest) {
        Only apply free-text matching when nothing structured was found. */
     const structured = skillIds.length > 0 || filters.categories.length > 0 || roleIds.length > 0;
     const freeText = structured ? undefined : filters.q;
+    const semanticOnlyBroadSet = !!queryEmbedding && skillIds.length === 0 && roleIds.length === 0;
 
     const [rawHackathonList, rawTeamList, peopleList] = await Promise.all([
       listHackathons({ q: queryEmbedding ? undefined : freeText }),
@@ -87,7 +88,7 @@ export async function GET(req: NextRequest) {
         excludedSkillIds,
         roleSlugs: roleIds,
         openToOpportunitiesOnly: !!queryEmbedding,
-        limit: 40,
+        limit: semanticOnlyBroadSet ? 500 : 40,
       }),
     ]);
     const excludedTerms = parsed.excludedSkills.map((skill) => skill.toLowerCase());
@@ -137,6 +138,7 @@ export async function GET(req: NextRequest) {
           const stored = byId.get(person.id);
           const sourceText = profileEmbeddingText({
             bio: person.bio,
+            text: person.bio,
             skills: person.topSkills.map((skill) => skill.slug),
             roles: person.roles.map((role) => role.slug),
             experienceLevel: person.experienceLevel,
@@ -183,20 +185,24 @@ export async function GET(req: NextRequest) {
               ...explanation,
               explicitSkill: skillScore,
               role: roleScore,
+              explicitSkillRequested: requestedSkillIds.size > 0,
+              roleRequested: requestedRoleSlugs.size > 0,
             }),
             explanation,
           };
         })
         .sort((left, right) => right.rank - left.rank || left.person.id.localeCompare(right.person.id))
-        .map(({ person, explanation }) => ({ ...person, searchExplanation: explanation, matchScore: Math.round(explanation.semanticScore !== null ? combineScores({
-          ...explanation,
-          explicitSkill: requestedSkillIds.size === 0 ? 0 : explanation.matchedSkills.length / requestedSkillIds.size,
-          role: requestedRoleSlugs.size === 0 ? 0 : explanation.matchedRoles.length / requestedRoleSlugs.size,
-        }) * 100 : combineScores({
-          ...explanation,
-          explicitSkill: requestedSkillIds.size === 0 ? 0 : explanation.matchedSkills.length / requestedSkillIds.size,
-          role: requestedRoleSlugs.size === 0 ? 0 : explanation.matchedRoles.length / requestedRoleSlugs.size,
-        }) * 100) }));
+        .map(({ person, explanation }) => ({
+          ...person,
+          searchExplanation: explanation,
+          matchScore: Math.round(combineScores({
+            ...explanation,
+            explicitSkill: requestedSkillIds.size === 0 ? 0 : explanation.matchedSkills.length / requestedSkillIds.size,
+            role: requestedRoleSlugs.size === 0 ? 0 : explanation.matchedRoles.length / requestedRoleSlugs.size,
+            explicitSkillRequested: requestedSkillIds.size > 0,
+            roleRequested: requestedRoleSlugs.size > 0,
+          }) * 100),
+        }));
     }
 
     const searchTerms = [...parsed.terms, ...parsed.explicitSkills, ...parsed.contextualConcepts];
@@ -226,7 +232,17 @@ export async function GET(req: NextRequest) {
           keywordScore,
           completenessScore: Number(Boolean(hackathon.description || hackathon.tagline)),
         });
-        return { hackathon, explanation, rank: combineScores({ ...explanation, explicitSkill: explanation.matchedSkills.length > 0 ? 1 : 0, role: explanation.matchedRoles.length > 0 ? 1 : 0 }) };
+        return {
+          hackathon,
+          explanation,
+          rank: combineScores({
+            ...explanation,
+            explicitSkill: explanation.matchedSkills.length > 0 ? 1 : 0,
+            role: explanation.matchedRoles.length > 0 ? 1 : 0,
+            explicitSkillRequested: skillNames.length > 0,
+            roleRequested: needles.length > 0,
+          }),
+        };
       })
       .sort((a, b) => b.rank - a.rank || a.hackathon.id.localeCompare(b.hackathon.id))
       .map(({ hackathon, explanation }) => ({ ...hackathon, searchExplanation: explanation }));
@@ -262,7 +278,17 @@ export async function GET(req: NextRequest) {
           keywordScore,
           completenessScore: team.completeness / 100,
         });
-        return { team, explanation, rank: combineScores({ ...explanation, explicitSkill: explanation.matchedSkills.length > 0 ? 1 : 0, role: explanation.matchedRoles.length > 0 ? 1 : 0 }) };
+        return {
+          team,
+          explanation,
+          rank: combineScores({
+            ...explanation,
+            explicitSkill: explanation.matchedSkills.length > 0 ? 1 : 0,
+            role: explanation.matchedRoles.length > 0 ? 1 : 0,
+            explicitSkillRequested: skillNames.length > 0,
+            roleRequested: parsed.roleSlugs.length > 0,
+          }),
+        };
       })
       .sort((a, b) => b.rank - a.rank || a.team.id.localeCompare(b.team.id))
       .map(({ team, explanation }) => ({ ...team, searchExplanation: explanation }));

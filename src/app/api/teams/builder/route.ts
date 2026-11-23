@@ -6,10 +6,19 @@ import { eq } from "drizzle-orm";
 import { rateLimit, tooManyRequests } from "@/lib/rate-limit";
 
 export async function GET(req: NextRequest) {
-  const rl = rateLimit(req, { key: "team-builder", limit: 20, windowMs: 60_000 });
-  if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
   const user = await requireUser();
-  if (!user) return fail("Unauthorized", 401);
+  if (!user) {
+    const anonRl = rateLimit(req, { key: "team-builder-anonymous", limit: 20, windowMs: 60_000 });
+    if (!anonRl.ok) return tooManyRequests(anonRl.retryAfterSec);
+    return fail("Unauthorized", 401);
+  }
+  const rl = rateLimit(req, {
+    key: "team-builder-user",
+    identifier: user.id,
+    limit: 20,
+    windowMs: 60_000,
+  });
+  if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
   const slug = req.nextUrl.searchParams.get("hackathon")?.trim();
   if (!slug) return fail("hackathon is required");
   const [hackathon] = await db

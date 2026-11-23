@@ -31,6 +31,8 @@ export type SearchExplanation = {
 export type RankingSignals = Omit<SearchExplanation, "reasons"> & {
   explicitSkill: number;
   role: number;
+  explicitSkillRequested?: boolean;
+  roleRequested?: boolean;
 };
 
 export function normalizeCosine(score: number): number {
@@ -59,8 +61,8 @@ export function combineScores(
 ): number {
   const values: Array<[number | null, number]> = [
     [signals.semanticScore, weights.semantic],
-    [signals.explicitSkill > 0 ? signals.explicitSkill : null, weights.explicitSkill],
-    [signals.role > 0 ? signals.role : null, weights.role],
+    [signals.explicitSkillRequested ? signals.explicitSkill : null, weights.explicitSkill],
+    [signals.roleRequested ? signals.role : null, weights.role],
     [signals.keywordScore > 0 ? signals.keywordScore : null, weights.keyword],
     [signals.availabilityScore, weights.availability],
     [signals.completenessScore, weights.completeness],

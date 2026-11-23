@@ -406,37 +406,33 @@ function TeamWorkspace({
               <TabsContent value="requests" className="mt-4">
                 <Card>
                   <CardContent className="p-4 space-y-3">
+                    {incoming.map((r) => (
+                      <div key={r.id} className="flex items-start gap-3 p-3 rounded-lg border">
+                        <UserAvatar name={r.userName} image={r.userImage} className="h-10 w-10" />
+                        <div className="flex-1 min-w-0">
+                          <Link href={`/profile/${r.userId}`} className="font-semibold text-sm hover:text-primary">{r.userName}</Link>
+                          <p className="text-sm text-muted-foreground mt-0.5">{r.message}</p>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <Button size="sm" onClick={() => respond.mutate({ requestId: r.id, action: "accepted" })} disabled={respond.isPending}><Check className="h-4 w-4 mr-1" /> Accept</Button>
+                          <Button size="sm" variant="outline" onClick={() => respond.mutate({ requestId: r.id, action: "declined" })} disabled={respond.isPending}><X className="h-4 w-4 mr-1" /> Decline</Button>
+                        </div>
+                      </div>
+                    ))}
                     {outgoingInvites.isLoading ? (
-                      <p className="text-sm text-muted-foreground py-4 text-center">Loading invitations...</p>
+                      <p className="text-sm text-muted-foreground py-2 text-center">Loading invitation history...</p>
                     ) : outgoingInvites.isError ? (
-                      <p className="text-sm text-destructive py-4 text-center">Unable to load invitations. Please try again.</p>
+                      <p className="text-sm text-destructive py-2 text-center">Unable to load outgoing invitations.</p>
                     ) : incoming.length === 0 && (outgoingInvites.data?.length ?? 0) === 0 ? (
-                      <p className="text-sm text-muted-foreground py-4 text-center">
-                        No pending requests or outgoing invitations.
-                      </p>
+                      <p className="text-sm text-muted-foreground py-4 text-center">No pending requests or outgoing invitations.</p>
                     ) : (
-                      <>
-                        {incoming.map((r) => (
-                          <div key={r.id} className="flex items-start gap-3 p-3 rounded-lg border">
-                            <UserAvatar name={r.userName} image={r.userImage} className="h-10 w-10" />
-                            <div className="flex-1 min-w-0">
-                              <Link href={`/profile/${r.userId}`} className="font-semibold text-sm hover:text-primary">{r.userName}</Link>
-                              <p className="text-sm text-muted-foreground mt-0.5">{r.message}</p>
-                            </div>
-                            <div className="flex gap-2 shrink-0">
-                              <Button size="sm" onClick={() => respond.mutate({ requestId: r.id, action: "accepted" })} disabled={respond.isPending}><Check className="h-4 w-4 mr-1" /> Accept</Button>
-                              <Button size="sm" variant="outline" onClick={() => respond.mutate({ requestId: r.id, action: "declined" })} disabled={respond.isPending}><X className="h-4 w-4 mr-1" /> Decline</Button>
-                            </div>
-                          </div>
-                        ))}
-                        {outgoingInvites.data?.map((invite) => (
-                          <div key={invite.id} className="flex items-center gap-3 p-3 rounded-lg border">
-                            <UserAvatar name={invite.name ?? "Candidate"} image={invite.image} className="h-9 w-9" />
-                            <div className="flex-1"><Link href={`/profile/${invite.userId}`} className="text-sm font-semibold hover:text-primary">{invite.name ?? "Candidate"}</Link><p className="text-xs text-muted-foreground">Invitation status</p></div>
-                            <Badge variant={invite.status === "accepted" ? "default" : invite.status === "pending" ? "secondary" : "outline"}>{invite.status}</Badge>
-                          </div>
-                        ))}
-                      </>
+                      outgoingInvites.data?.map((invite) => (
+                        <div key={invite.id} className="flex items-center gap-3 p-3 rounded-lg border">
+                          <UserAvatar name={invite.name ?? "Candidate"} image={invite.image} className="h-9 w-9" />
+                          <div className="flex-1"><Link href={`/profile/${invite.userId}`} className="text-sm font-semibold hover:text-primary">{invite.name ?? "Candidate"}</Link><p className="text-xs text-muted-foreground">Invitation status</p></div>
+                          <Badge variant={invite.status === "accepted" ? "default" : invite.status === "pending" ? "secondary" : "outline"}>{invite.status}</Badge>
+                        </div>
+                      ))
                     )}
                   </CardContent>
                 </Card>

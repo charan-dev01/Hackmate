@@ -84,8 +84,13 @@ export async function embedNeedlePair(
 
 async function getNeedleSession() {
   const { createNeedle } = await import("cactus-needle/browser");
-  sessionPromise ??= createNeedle({ cache: true });
-  return sessionPromise;
+  if (sessionPromise) return sessionPromise;
+  const pending = createNeedle({ cache: true });
+  sessionPromise = pending;
+  pending.catch(() => {
+    if (sessionPromise === pending) sessionPromise = null;
+  });
+  return pending;
 }
 
 export async function embedNeedleText(text: string): Promise<number[]> {

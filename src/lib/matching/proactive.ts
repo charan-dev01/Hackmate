@@ -3,6 +3,7 @@ import { db, schema } from "@/lib/db";
 import { sendEmailWithResult, emailTemplates } from "@/lib/email";
 import { getTeamMatchesForUser } from "@/lib/queries/teams";
 import { cosineSimilarity, hasUsableStoredEmbedding } from "./semantic";
+import { createHash } from "node:crypto";
 
 const DIGEST_THRESHOLD = 5;
 const DIGEST_INTERVAL_MS = 72 * 60 * 60 * 1000;
@@ -219,7 +220,9 @@ async function processDigests() {
     const delivery = await sendEmailWithResult({
       to: currentUser.email,
       ...emailTemplates.matchDigest(groups, claimedInvites.length),
-      idempotencyKey: `match-digest:${user.id}:${[...claimed.map((match) => match.id), ...claimedInvites.map((invite) => invite.id)].sort().join(",")}`,
+      idempotencyKey: `match-digest:${user.id}:${createHash("sha256")
+        .update([...claimed.map((match) => match.id), ...claimedInvites.map((invite) => invite.id)].sort().join(","))
+        .digest("hex")}`,
     });
     if (delivery.delivered) {
       await db.update(schema.userMatches).set({ digestSentAt: now, digestProviderId: delivery.providerMessageId }).where(inArray(schema.userMatches.id, claimed.map((m) => m.id)));
@@ -240,13 +243,23 @@ export async function runProactiveMatching() {
   const users = await db.select({ id: schema.users.id }).from(schema.users)
     .where(eq(schema.users.openToOpportunities, true));
   let created = 0;
-
-  await db.update(schema.userMatches).set({ active: false }).where(or(
-    eq(schema.userMatches.active, true),
-    lt(schema.userMatches.createdAt, new Date(now.getTime() - MATCH_RETENTION_MS)),
-  ));
+  const staged = new Map<string, Array<{
+    existingId?: string;
+    teamId: string;
+    roleId: string;
+    score: number;
+    reasons: string[];
+  }>>();
 
   for (const user of users) {
+    const replacements: Array<{
+      existingId?: string;
+      teamId: string;
+      roleId: string;
+      score: number;
+      reasons: string[];
+    }> = [];
+    staged.set(user.id, replacements);
     const candidates = await getTeamMatchesForUser(user.id, 500);
     const teamIds = candidates.map((candidate) => candidate.id);
     if (teamIds.length === 0) continue;
@@ -303,25 +316,63 @@ export async function runProactiveMatching() {
         const existing = await db.select({ id: schema.userMatches.id }).from(schema.userMatches)
           .where(and(eq(schema.userMatches.userId, user.id), eq(schema.userMatches.teamId, candidate.id), eq(schema.userMatches.roleId, role.roleId))).limit(1);
         if (existing.length > 0) {
-          await db.update(schema.userMatches).set({
-            active: true, score: matchScore, reasons: matchReasons, evaluatedAt: now, digestClaimedAt: null,
-          }).where(eq(schema.userMatches.id, existing[0].id));
+          replacements.push({
+            existingId: existing[0].id,
+            teamId: candidate.id,
+            roleId: role.roleId,
+            score: matchScore,
+            reasons: matchReasons,
+          });
         } else {
-          const inserted = await db.insert(schema.userMatches).values({
-            userId: user.id, teamId: candidate.id, roleId: role.roleId, score: matchScore,
-            reasons: matchReasons, evaluatedAt: now,
+          replacements.push({
+            teamId: candidate.id,
+            roleId: role.roleId,
+            score: matchScore,
+            reasons: matchReasons,
+          });
+        }
+      }
+    }
+  }
+
+  await db.transaction(async (tx) => {
+    await tx.update(schema.userMatches).set({ active: false }).where(or(
+      eq(schema.userMatches.active, true),
+      lt(schema.userMatches.createdAt, new Date(now.getTime() - MATCH_RETENTION_MS)),
+    ));
+
+    for (const [userId, replacements] of staged) {
+      for (const replacement of replacements) {
+        if (replacement.existingId) {
+          await tx.update(schema.userMatches).set({
+            active: true,
+            score: replacement.score,
+            reasons: replacement.reasons,
+            evaluatedAt: now,
+          }).where(eq(schema.userMatches.id, replacement.existingId));
+        } else {
+          const inserted = await tx.insert(schema.userMatches).values({
+            userId,
+            teamId: replacement.teamId,
+            roleId: replacement.roleId,
+            score: replacement.score,
+            reasons: replacement.reasons,
+            evaluatedAt: now,
           }).onConflictDoNothing().returning({ id: schema.userMatches.id });
           if (inserted.length === 0) continue;
-          await db.insert(schema.notifications).values({
-            userId: user.id, type: "system", title: "New team match found",
-            body: `A recruiting team matches your profile. Explore your active matches to learn more.`,
+          await tx.insert(schema.notifications).values({
+            userId,
+            type: "system",
+            title: "New team match found",
+            body: "A recruiting team matches your profile. Explore your active matches to learn more.",
             link: "/matches",
           });
           created += 1;
         }
       }
     }
-  }
+  });
+
   const sent = await processDigests();
   return { created, digestsSent: sent };
 }

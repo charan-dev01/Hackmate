@@ -59,7 +59,7 @@ export async function people(filters: PeopleFilters = {}): Promise<PersonCardDTO
 
   const hasPostFilters = Boolean(
     filters.skillIds?.length || filters.categories?.length || filters.excludedSkillIds?.length ||
-    filters.roleSlugs?.length || filters.hackathonId || filters.excludeTeamHackathonId,
+    filters.hackathonId || filters.excludeTeamHackathonId,
   );
   let userRows = await db
     .select({
