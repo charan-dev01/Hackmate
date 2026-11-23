@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { sendEmailWithResult, emailTemplates } from "@/lib/email";
 import { getTeamMatchesForUser } from "@/lib/queries/teams";
@@ -71,7 +71,7 @@ export async function cleanupStaleInvitations() {
   return expired;
 }
 
-export async function getActiveMatches(userId: string) {
+export async function getActiveMatches(userId: string, excludedTeamIds: string[] = []) {
   const now = new Date();
   return db
     .select({
@@ -100,6 +100,7 @@ export async function getActiveMatches(userId: string) {
       eq(schema.teams.status, "recruiting"),
       sql`(${schema.teamRolesNeeded.expiresAt} is null or ${schema.teamRolesNeeded.expiresAt} > ${now})`,
       sql`(${schema.hackathons.endsAt} is null or ${schema.hackathons.endsAt} > ${now})`,
+      excludedTeamIds.length > 0 ? notInArray(schema.userMatches.teamId, excludedTeamIds) : undefined,
     ))
     .orderBy(desc(schema.userMatches.score), desc(schema.userMatches.createdAt));
 }
@@ -295,7 +296,7 @@ export async function runProactiveMatching() {
           : null;
         const matchScore = semantic === null
           ? candidate.matchScore ?? 0
-          : Math.round((candidate.matchScore ?? 0) * 0.7 + Math.max(0, semantic) * 30);
+          : Math.round((candidate.matchScore ?? 0) * 0.7 + ((semantic + 1) / 2) * 30);
         const matchReasons = semantic === null
           ? candidate.matchReasons ?? []
           : [...(candidate.matchReasons ?? []), "Semantic profile and role relevance"];

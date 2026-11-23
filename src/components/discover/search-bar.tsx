@@ -98,7 +98,14 @@ export function SearchBar({
         </div>
       )}
 
-      {parsed && (parsed.skills.length > 0 || parsed.roles.length > 0 || parsed.teamSize) && (
+      {parsed && (
+        parsed.skills.length > 0 ||
+        parsed.roles.length > 0 ||
+        parsed.teamSize ||
+        (parsed.contextualConcepts ?? []).length > 0 ||
+        (parsed.relatedSuggestions ?? []).length > 0 ||
+        (parsed.excludedSkills ?? []).length > 0
+      ) && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           <span>Understood:</span>
           {parsed.skills.map((s) => (

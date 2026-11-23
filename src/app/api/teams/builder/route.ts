@@ -3,8 +3,11 @@ import { buildTeamRecommendation } from "@/lib/matching/builder";
 import { fail, ok, requireUser } from "@/lib/api";
 import { db, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
+import { rateLimit, tooManyRequests } from "@/lib/rate-limit";
 
 export async function GET(req: NextRequest) {
+  const rl = rateLimit(req, { key: "team-builder", limit: 20, windowMs: 60_000 });
+  if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
   const user = await requireUser();
   if (!user) return fail("Unauthorized", 401);
   const slug = req.nextUrl.searchParams.get("hackathon")?.trim();

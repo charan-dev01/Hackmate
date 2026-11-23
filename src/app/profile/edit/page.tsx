@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -81,11 +81,14 @@ export default function EditProfilePage() {
     openToIdeaSwaps: true,
   });
 
-  /* Hydrate the local editable state once the profile arrives.
-     (Render-time "adjust state when props change" pattern - no effect needed.) */
-  const [loadedFor, setLoadedFor] = useState<string | null>(null);
-  if (profile && loadedFor !== profile.id) {
-    setLoadedFor(profile.id);
+  /* Hydrate editable state when the profile query completes, without
+     overwriting changes while the user is editing. */
+  const loadedFor = useRef<string | null>(null);
+  // Hydration is intentionally stateful. It runs only once per profile id.
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (!profile || loadedFor.current === profile.id) return;
+    loadedFor.current = profile.id;
     setForm({
       name: profile.name ?? "",
       username: profile.username ?? "",
@@ -106,15 +109,14 @@ export default function EditProfilePage() {
     );
     setRoles((profile.roles ?? []).map((r) => ({ slug: r.slug, isPrimary: !!r.isPrimary })));
     if (profile.availability) {
-      setAvail((a) => ({
-        ...a,
+      setAvail({
         weekends: profile.availability!.weekends,
         evenings: profile.availability!.evenings,
         overnight: profile.availability!.overnight,
         remoteOnly: profile.availability!.remoteOnly,
         willingToTravel: profile.availability!.willingToTravel,
         hoursPerWeek: profile.availability!.hoursPerWeek,
-      }));
+      });
     }
     if (profile.compat?.workStyle) {
       setCompat({
@@ -123,7 +125,8 @@ export default function EditProfilePage() {
         openToIdeaSwaps: profile.compat!.openToIdeaSwaps,
       });
     }
-  }
+  }, [profile]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const save = useMutation({
     /** Save the current form, skills, roles, availability, and compatibility answers. */

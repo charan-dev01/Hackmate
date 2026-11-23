@@ -71,15 +71,15 @@ export function parseSearchQuery(raw: string): ParsedQuery {
   const hits = skillMatches(q);
   const explicitBySlug = new Map<string, string>();
   for (const hit of hits) explicitBySlug.set(hit.slug, hit.name);
-  const excludedSkills = normalizeSemanticSkills(
-    SEMANTIC_TAXONOMY.skills
-      .filter((skill) => skillMatches(`not ${skill.name}`).length === 0 && /\b(?:not|without|avoid|except|excluding|exclude|no)\s+/i.test(normalized))
-      .filter((skill) => {
-        const index = normalized.indexOf(normalizedQuery(skill.name));
-        return index >= 0 && isNegated(normalized, index);
-      })
-      .map((skill) => skill.name),
-  );
+  const excludedSkills = normalizeSemanticSkills(SEMANTIC_TAXONOMY.skills
+    .filter((skill) => [skill.name, skill.slug, ...skill.aliases,
+      ...Object.entries(SEMANTIC_TAXONOMY.aliases)
+        .filter(([, slug]) => slug === skill.slug).map(([alias]) => alias),
+    ].some((name) => {
+      const match = boundaryPattern(normalizedQuery(name)).exec(normalized);
+      return !!match && isNegated(normalized, match.index + match[1].length);
+    }))
+    .map((skill) => skill.name));
   const contextualConcepts = [...new Set(
     CONTEXT_PHRASES.filter(([pattern]) => pattern.test(q)).flatMap(([, concepts]) => concepts),
   )].filter((concept) => !explicitBySlug.has(normalizedQuery(concept).replace(/\s/g, "-")));

@@ -99,7 +99,7 @@ function NewTeamForm() {
       ).catch((error: unknown) => {
         console.warn("[team] Semantic embedding was not saved:", error);
       });
-      if (sendBuilderInvites && builderCandidates.length > 0) {
+      if (sendBuilderInvites && !ideaFirst && selectedBuilderCandidates.length > 0) {
         const results = await Promise.allSettled(
           selectedBuilderCandidates.map((userId) =>
             api(`/api/teams/${team.id}/invites`, {
@@ -139,6 +139,7 @@ function NewTeamForm() {
       {selectedHackathon && !ideaFirst && (
         <div className="mb-6">
           <BuilderPanel
+            key={effectiveHackathonId}
             hackathon={selectedHackathon.slug}
             initialSelectedIds={selectedBuilderCandidates}
             onSelectionChange={setSelectedBuilderCandidates}
@@ -177,6 +178,8 @@ function NewTeamForm() {
                     setIdeaFirst(true);
                   } else {
                     setIdeaFirst(false);
+                    setSelectedBuilderCandidates([]);
+                    setSendBuilderInvites(false);
                     setForm({ ...form, hackathonId: v });
                   }
                 }}

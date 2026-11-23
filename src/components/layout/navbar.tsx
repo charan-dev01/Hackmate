@@ -126,13 +126,6 @@ export function Navbar() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  /* Close the mobile menu on route change. */
-  const [prevPath, setPrevPath] = useState(pathname);
-  if (prevPath !== pathname) {
-    setPrevPath(pathname);
-    setMobileOpen(false);
-  }
-
   /* Lock body scroll while the mobile menu is open. */
   useEffect(() => {
     document.body.style.overflow = mobileOpen ? "hidden" : "";

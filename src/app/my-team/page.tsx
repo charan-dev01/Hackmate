@@ -315,7 +315,7 @@ function TeamWorkspace({
               </TabsTrigger>
               <TabsTrigger value="tasks" className="data-[state=active]:bg-background">Checklist</TabsTrigger>
               <TabsTrigger value="members" className="data-[state=active]:bg-background">Members</TabsTrigger>
-              {isAdmin && (incoming.length > 0 || (outgoingInvites.data?.length ?? 0) > 0) && (
+              {isAdmin && (
                 <TabsTrigger value="requests" className="gap-1.5 data-[state=active]:bg-background">
                   Requests
                   <Badge variant="destructive" className="text-[10px] px-1.5 py-0">{incoming.length}</Badge>
@@ -406,7 +406,11 @@ function TeamWorkspace({
               <TabsContent value="requests" className="mt-4">
                 <Card>
                   <CardContent className="p-4 space-y-3">
-                    {incoming.length === 0 && (outgoingInvites.data?.length ?? 0) === 0 ? (
+                    {outgoingInvites.isLoading ? (
+                      <p className="text-sm text-muted-foreground py-4 text-center">Loading invitations...</p>
+                    ) : outgoingInvites.isError ? (
+                      <p className="text-sm text-destructive py-4 text-center">Unable to load invitations. Please try again.</p>
+                    ) : incoming.length === 0 && (outgoingInvites.data?.length ?? 0) === 0 ? (
                       <p className="text-sm text-muted-foreground py-4 text-center">
                         No pending requests or outgoing invitations.
                       </p>

@@ -284,10 +284,11 @@ function DiscoverContent() {
         </div>
 
         <TabsContent value="hackathons" className="mt-5">
+          {semanticWarning && (
+            <p role="status" className="mb-3 text-sm text-muted-foreground">{semanticWarning}</p>
+          )}
           {searchError ? (
             <p role="alert" className="text-sm text-destructive">{searchError}</p>
-          ) : semanticWarning ? (
-            <p role="status" className="text-sm text-muted-foreground">{semanticWarning}</p>
           ) : loading ? (
             <SkeletonList />
           ) : hackathonList.length === 0 ? (

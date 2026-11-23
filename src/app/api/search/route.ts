@@ -38,6 +38,7 @@ export async function GET(req: NextRequest) {
     if (q.length === 0) {
       return ok({ parsed: null, hackathons: [], teams: [], people: [] });
     }
+    if (q.length > 300) return fail("Search query is too long", 422);
 
     const parsed = parseSearchQuery(q);
     const filters = toStructuredFilters(parsed);
@@ -77,10 +78,10 @@ export async function GET(req: NextRequest) {
     const freeText = structured ? undefined : filters.q;
 
     const [rawHackathonList, rawTeamList, peopleList] = await Promise.all([
-      listHackathons({ q: freeText }),
+      listHackathons({ q: queryEmbedding ? undefined : freeText }),
       listTeams({ recruiting: true }, viewer?.id ?? null),
       people({
-        q: freeText,
+        q: queryEmbedding ? undefined : freeText,
         skillIds: skillIds.length > 0 ? skillIds : undefined,
         categories: filters.categories.length > 0 ? filters.categories : undefined,
         excludedSkillIds,

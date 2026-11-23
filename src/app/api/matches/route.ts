@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { getTeamMatchesForUser, getPeopleMatchesForTeam } from "@/lib/queries/teams";
 import { ok, fail, withUser } from "@/lib/api";
 import { getActiveMatches } from "@/lib/matching/proactive";
+import { and, eq, notInArray } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
 
 /**
  * GET /api/matches - deterministic matching for the signed-in viewer.
@@ -17,7 +19,8 @@ export async function GET(req: NextRequest) {
       return ok(await getTeamMatchesForUser(user.id, 12));
     }
     if (type === "active") {
-      return ok(await getActiveMatches(user.id));
+      const joined = await db.select({ teamId: schema.teamMembers.teamId }).from(schema.teamMembers).where(eq(schema.teamMembers.userId, user.id));
+      return ok(await getActiveMatches(user.id, joined.map((row) => row.teamId)));
     }
     if (type === "people") {
       const teamId = p.get("teamId");

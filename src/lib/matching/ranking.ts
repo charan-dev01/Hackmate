@@ -41,7 +41,10 @@ export function normalizedKeywordScore(text: string, terms: string[]): number {
   const haystack = text.toLowerCase();
   const meaningful = terms.filter((term) => term.length > 1);
   if (meaningful.length === 0) return 0;
-  return meaningful.filter((term) => haystack.includes(term.toLowerCase())).length / meaningful.length;
+  return meaningful.filter((term) => {
+    const escaped = term.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+    return new RegExp(`(^|[^a-z0-9+#])${escaped}(?=$|[^a-z0-9+#])`, "i").test(haystack);
+  }).length / meaningful.length;
 }
 
 export function safeSemanticScore(query: number[] | null, candidate: number[] | null): number | null {

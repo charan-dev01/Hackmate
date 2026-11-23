@@ -89,13 +89,19 @@ async function getNeedleSession() {
 }
 
 export async function embedNeedleText(text: string): Promise<number[]> {
-  const cached = vectorCache.get(text);
+  const key = text.trim().replace(/\s+/g, " ");
+  if (!key) throw new Error("Text is required.");
+  const cached = vectorCache.get(key);
   if (cached) return cached;
   const pending = (async () => {
-    const vector = await (await getNeedleSession()).embed(text);
+    const vector = await (await getNeedleSession()).embed(key);
     return validateVector(vector, "Text");
   })();
-  vectorCache.set(text, pending);
+  vectorCache.set(key, pending);
+  pending.catch(() => {
+    // A transient model/download failure must not poison the cache forever.
+    if (vectorCache.get(key) === pending) vectorCache.delete(key);
+  });
   return pending;
 }
 

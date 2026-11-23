@@ -91,13 +91,6 @@ export async function POST(
       409,
     );
 
-  const [existing] = await db
-    .select({ status: schema.invites.status })
-    .from(schema.invites)
-    .where(and(eq(schema.invites.teamId, id), eq(schema.invites.userId, target.id)))
-    .limit(1);
-  if (existing?.status === "pending") return fail("Invite already pending", 409);
-
   let roleId: string | null = null;
   if (parsed.data.roleSlug) {
     const [role] = await db
@@ -108,31 +101,43 @@ export async function POST(
     roleId = role?.id ?? null;
   }
 
-  if (existing) {
-    await db
-      .update(schema.invites)
-      .set({
-        status: "pending",
-        inviterId: user.id,
-        message: parsed.data.message || null,
-        roleId,
-        expiresAt: new Date(Date.now() + Number(process.env.INVITE_EXPIRY_DAYS ?? 7) * 24 * 60 * 60 * 1000),
-        digestClaimedAt: null,
-        digestSentAt: null,
-      })
-      .where(and(eq(schema.invites.teamId, id), eq(schema.invites.userId, target.id)));
-  } else {
-    const [createdInvite] = await db.insert(schema.invites).values({
-      teamId: id,
-      userId: target.id,
-      inviterId: user.id,
-      roleId,
-      message: parsed.data.message || null,
-      expiresAt: new Date(Date.now() + Number(process.env.INVITE_EXPIRY_DAYS ?? 7) * 24 * 60 * 60 * 1000),
-    }).returning();
+  const expiresAt = new Date(Date.now() + Number(process.env.INVITE_EXPIRY_DAYS ?? 7) * 24 * 60 * 60 * 1000);
+  let created = false;
+  let inviteId: string;
+  try {
+    inviteId = await db.transaction(async (tx) => {
+    const [lockedTeam] = await tx.select({ status: schema.teams.status, targetSize: schema.teams.targetSize })
+      .from(schema.teams).where(eq(schema.teams.id, id)).for("update");
+    if (!lockedTeam || lockedTeam.status !== "recruiting") throw new Error("Team isn't recruiting");
+    const members = await tx.select({ userId: schema.teamMembers.userId })
+      .from(schema.teamMembers).where(eq(schema.teamMembers.teamId, id));
+    if (members.length >= lockedTeam.targetSize) throw new Error("Team is full");
+    const [existing] = await tx.select({ id: schema.invites.id, status: schema.invites.status })
+      .from(schema.invites)
+      .where(and(eq(schema.invites.teamId, id), eq(schema.invites.userId, target.id))).limit(1);
+    if (existing?.status === "pending") throw new Error("Invite already pending");
+    if (existing) {
+      await tx.update(schema.invites).set({
+        status: "pending", inviterId: user.id, message: parsed.data.message || null, roleId,
+        expiresAt, digestClaimedAt: null, digestSentAt: null,
+      }).where(eq(schema.invites.id, existing.id));
+      return existing.id;
+    }
+    const [createdInvite] = await tx.insert(schema.invites).values({
+      teamId: id, userId: target.id, inviterId: user.id, roleId,
+      message: parsed.data.message || null, expiresAt,
+    }).returning({ id: schema.invites.id });
+    created = true;
+    return createdInvite.id;
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Could not send invite";
+    return fail(message, 409);
+  }
+  if (created) {
     await db.insert(schema.notifications).values({
       userId: target.id,
-      inviteId: createdInvite.id,
+      inviteId,
       type: "invite",
       title: `${user.name ?? "Someone"} invited you to join "${detail.name}"`,
       body:
@@ -144,15 +149,9 @@ export async function POST(
     });
     return ok({ status: "sent" }, { status: 201 });
   }
-
-  const [refreshedInvite] = await db
-    .select({ id: schema.invites.id })
-    .from(schema.invites)
-    .where(and(eq(schema.invites.teamId, id), eq(schema.invites.userId, target.id)))
-    .limit(1);
   await db.insert(schema.notifications).values({
     userId: target.id,
-    inviteId: refreshedInvite?.id,
+    inviteId,
     type: "invite",
     title: `${user.name ?? "Someone"} invited you to join "${detail.name}"`,
     body: parsed.data.message?.slice(0, 140) ?? `Team for ${detail.hackathonName ?? "an upcoming event"}`,
@@ -185,8 +184,9 @@ export async function PATCH(
   const detail = await getTeamDetail(id, user.id);
   if (!detail) return fail("Team not found", 404);
 
-  if (invite.expiresAt && invite.expiresAt <= new Date()) {
-    await db.update(schema.invites).set({ status: "expired" }).where(eq(schema.invites.id, invite.id));
+  const inviteDeadline = invite.expiresAt ?? new Date(invite.createdAt.getTime() + Number(process.env.INVITE_EXPIRY_DAYS ?? 7) * 24 * 60 * 60 * 1000);
+  if (inviteDeadline <= new Date()) {
+    await db.update(schema.invites).set({ status: "expired", expiresAt: inviteDeadline }).where(and(eq(schema.invites.id, invite.id), eq(schema.invites.status, "pending")));
     await db.update(schema.notifications).set({ read: true }).where(eq(schema.notifications.inviteId, invite.id));
     return fail("Invite has expired", 409);
   }
@@ -233,11 +233,11 @@ export async function PATCH(
       roleId: invite.roleId ?? null,
     });
     await tx.update(schema.notifications).set({ read: true }).where(eq(schema.notifications.inviteId, invite.id));
+    if (memberRows.length + 1 >= lockedTeam.targetSize) {
+      await tx.update(schema.teams).set({ status: "full" }).where(eq(schema.teams.id, id));
+    }
   });
 
-  if (detail.memberCount + 1 >= detail.targetSize) {
-    await db.update(schema.teams).set({ status: "full" }).where(eq(schema.teams.id, id));
-  }
   await db
     .update(schema.users)
     .set({ recruitmentStatus: "team_full", updatedAt: new Date() })

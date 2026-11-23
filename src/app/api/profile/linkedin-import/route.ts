@@ -88,6 +88,7 @@ export async function POST(req: NextRequest) {
         linkedinUrl?: SQL;
         linkedinData?: LinkedInImport | null;
         bio?: SQL;
+        profileEmbeddingStatus?: "stale";
       } = { updatedAt: new Date() };
 
       if (normalizedUrl) {
@@ -104,6 +105,7 @@ export async function POST(req: NextRequest) {
           THEN ${imported.about}
           ELSE ${schema.users.bio}
         END`;
+        if (!current.bio?.trim()) update.profileEmbeddingStatus = "stale";
       }
 
       const [saved] = await tx

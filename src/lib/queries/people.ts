@@ -35,6 +35,15 @@ export async function people(filters: PeopleFilters = {}): Promise<PersonCardDTO
   if (filters.experienceLevel) where.push(eq(schema.users.experienceLevel, filters.experienceLevel as any));
   if (filters.commitment) where.push(eq(schema.users.commitment, filters.commitment as any));
   if (filters.collegeId) where.push(eq(schema.users.collegeId, filters.collegeId));
+  if (filters.roleSlugs && filters.roleSlugs.length > 0) {
+    where.push(sql`exists (
+      select 1
+      from ${schema.userRoles}
+      inner join ${schema.roleTaxonomy} on ${schema.userRoles.roleId} = ${schema.roleTaxonomy.id}
+      where ${schema.userRoles.userId} = ${schema.users.id}
+        and ${schema.roleTaxonomy.slug} in (${sql.join(filters.roleSlugs.map((slug) => sql`${slug}`), sql`, `)})
+    )`);
+  }
   if (filters.q) {
     /* lower() LIKE lower() instead of ILIKE: identical behavior and
        guaranteed to run on CockroachDB as well as Postgres. */
@@ -48,6 +57,10 @@ export async function people(filters: PeopleFilters = {}): Promise<PersonCardDTO
     );
   }
 
+  const hasPostFilters = Boolean(
+    filters.skillIds?.length || filters.categories?.length || filters.excludedSkillIds?.length ||
+    filters.roleSlugs?.length || filters.hackathonId || filters.excludeTeamHackathonId,
+  );
   let userRows = await db
     .select({
       u: schema.users,
@@ -57,7 +70,10 @@ export async function people(filters: PeopleFilters = {}): Promise<PersonCardDTO
     .leftJoin(schema.colleges, eq(schema.users.collegeId, schema.colleges.id))
     .where(where.length > 0 ? and(...where) : undefined)
     .orderBy(desc(schema.users.emergencyAvailableUntil), desc(schema.users.createdAt))
-    .limit(filters.limit ?? 60);
+    // Skill, category, role, and exclusion filters are applied after the
+    // related rows are loaded below. Do not truncate the candidate set before
+    // those filters run, otherwise a full first page can hide valid matches.
+    .limit(hasPostFilters ? 10000 : (filters.limit ?? 60));
 
   let userIds = userRows.map((r) => r.u.id);
 
@@ -199,14 +215,14 @@ export async function people(filters: PeopleFilters = {}): Promise<PersonCardDTO
   }
   if (filters.excludedSkillIds && filters.excludedSkillIds.length > 0) {
     const excluded = new Set(filters.excludedSkillIds);
-    list = list.filter((p) => !p.topSkills.some((skill) => excluded.has(skill.id)));
+    list = list.filter((p) => !(skillsByUser.get(p.id) ?? []).some((skill) => excluded.has(skill.skillId)));
   }
   if (filters.roleSlugs && filters.roleSlugs.length > 0) {
     const wantedRoles = new Set(filters.roleSlugs);
     list = list.filter((p) => p.roles.some((role) => wantedRoles.has(role.slug)));
   }
 
-  return list;
+  return list.slice(0, filters.limit ?? 60);
 }
 
 /* ------------------------------------------------------------------ */

@@ -11,7 +11,7 @@ import { useActiveMatches, useCurrentUser } from "@/hooks/use-api";
 
 export default function MatchesPage() {
   const { isAuthenticated } = useCurrentUser();
-  const { data, isLoading } = useActiveMatches(isAuthenticated);
+  const { data, isLoading, isError, refetch } = useActiveMatches(isAuthenticated);
 
   if (!isAuthenticated) {
     return <div className="pt-16"><EmptyState icon={Sparkles} title="Sign in to see your matches" description="HackMate will surface recruiting teams that fit your profile." action={<Button asChild><Link href="/login">Sign in</Link></Button>} /></div>;
@@ -21,7 +21,13 @@ export default function MatchesPage() {
     <div className="pt-8 pb-4 max-w-4xl space-y-6">
       <div><h1 className="text-2xl font-extrabold tracking-tight">Your matches</h1><p className="text-sm text-muted-foreground mt-1">All currently eligible team opportunities suggested for your profile.</p></div>
       {isLoading && <Skeleton className="h-48 w-full rounded-xl" />}
-      {!isLoading && data?.length === 0 && <EmptyState icon={Users} title="No active matches yet" description="Turn on “Open to team opportunities” in your profile and keep your skills and roles up to date." action={<Button asChild variant="outline"><Link href="/profile/edit">Update preferences</Link></Button>} />}
+      {isError && (
+        <div className="rounded-xl border border-destructive/30 p-4 text-sm text-destructive">
+          <p>Unable to load your matches.</p>
+          <Button variant="outline" size="sm" className="mt-3" onClick={() => void refetch()}>Try again</Button>
+        </div>
+      )}
+      {!isLoading && !isError && data?.length === 0 && <EmptyState icon={Users} title="No active matches yet" description="Turn on “Open to team opportunities” in your profile and keep your skills and roles up to date." action={<Button asChild variant="outline"><Link href="/profile/edit">Update preferences</Link></Button>} />}
       <div className="grid gap-4 sm:grid-cols-2">
         {data?.map((match) => (
           <Card key={match.id}>

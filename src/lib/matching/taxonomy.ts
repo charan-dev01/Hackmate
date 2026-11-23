@@ -208,16 +208,20 @@ export function taxonomyAliasMap(): Map<string, string> {
 
 function resolveAlias(value: string): string {
   const normalized = value.trim().toLowerCase().replace(/\s+/g, " ");
-  return SEMANTIC_TAXONOMY.aliases[normalized as keyof typeof SEMANTIC_TAXONOMY.aliases] ?? normalized;
+  const alias = taxonomyAliasMap().get(normalized);
+  return alias ?? normalized;
 }
 
 export function normalizeSemanticSkills(skills: string[]): string[] {
-  const known = new Map(SEMANTIC_TAXONOMY.skills.flatMap((skill) => [
-    [skill.slug, skill.name] as const,
-    [skill.name.toLowerCase(), skill.name] as const,
-    ...skill.aliases.map((alias) => [alias, skill.name] as const),
-  ]));
-  return [...new Map(skills.map(resolveAlias).map((skill) => [skill, known.get(skill) ?? skill])).values()]
+  const known = new Map(SEMANTIC_TAXONOMY.skills.map((skill) => [skill.slug, skill.name]));
+  return [...new Map(skills.map((skill) => {
+    const identity = resolveAlias(skill);
+    const entry = SEMANTIC_TAXONOMY.skills.find((candidate) =>
+      candidate.slug === identity || candidate.name.toLowerCase() === identity,
+    );
+    const canonical = entry ? known.get(entry.slug)! : skill;
+    return [entry?.slug ?? identity, canonical] as const;
+  })).values()]
     .sort((left, right) => left.localeCompare(right));
 }
 
