@@ -60,7 +60,8 @@ export default function MyTeamPage() {
   const { isAuthenticated } = useCurrentUser();
   const router = useRouter();
   const { data: team, isLoading } = useMyTeam();
-  const { data: notif } = useNotifications(isAuthenticated);
+  const notificationsQuery = useNotifications(isAuthenticated);
+  const { data: notif } = notificationsQuery;
   const [inviteOpen, setInviteOpen] = useState(false);
 
   if (!isAuthenticated) {
@@ -106,18 +107,28 @@ export default function MyTeamPage() {
     );
   }
 
-  return <TeamWorkspace team={team} notif={notif} inviteOpen={inviteOpen} setInviteOpen={setInviteOpen} />;
+  return (
+    <TeamWorkspace
+      team={team}
+      notif={notif}
+      notificationsLoaded={notificationsQuery.isSuccess}
+      inviteOpen={inviteOpen}
+      setInviteOpen={setInviteOpen}
+    />
+  );
 }
 
 /** Render team members, verification badges, chat, and membership controls for the viewer. */
 function TeamWorkspace({
   team,
   notif,
+  notificationsLoaded,
   inviteOpen,
   setInviteOpen,
 }: {
   team: TeamDetailDTO;
   notif?: NotificationsData;
+  notificationsLoaded: boolean;
   inviteOpen: boolean;
   setInviteOpen: (v: boolean) => void;
 }) {
@@ -423,7 +434,11 @@ function TeamWorkspace({
                       <p className="text-sm text-muted-foreground py-2 text-center">Loading invitation history...</p>
                     ) : outgoingInvites.isError ? (
                       <p className="text-sm text-destructive py-2 text-center">Unable to load outgoing invitations.</p>
-                    ) : incoming.length === 0 && (outgoingInvites.data?.length ?? 0) === 0 ? (
+                    ) : notificationsLoaded &&
+                      !outgoingInvites.isLoading &&
+                      !outgoingInvites.isError &&
+                      incoming.length === 0 &&
+                      (outgoingInvites.data?.length ?? 0) === 0 ? (
                       <p className="text-sm text-muted-foreground py-4 text-center">No pending requests or outgoing invitations.</p>
                     ) : (
                       outgoingInvites.data?.map((invite) => (

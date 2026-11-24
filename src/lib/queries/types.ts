@@ -40,6 +40,7 @@ export interface PersonCardDTO {
   emergencyAvailable: boolean;
   githubUsername: string | null;
   topSkills: SkillDTO[];
+  skills?: SkillDTO[];
   roles: RoleDTO[];
   hoursPerWeek: number;
   matchScore?: number;

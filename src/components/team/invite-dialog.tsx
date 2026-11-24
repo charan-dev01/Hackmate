@@ -36,9 +36,19 @@ export function InviteDialog({
   openRoles: string[];
 }) {
   const [query, setQuery] = useState("");
-  const [invited, setInvited] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState("");
   const queryClient = useQueryClient();
+  const outgoingInvites = useQuery({
+    queryKey: ["team-invites", teamId],
+    queryFn: () => api<{ id: string; userId: string; status: string }[]>(
+      `/api/teams/${teamId}/invites`,
+    ),
+  });
+  const pendingInviteUserIds = new Set(
+    (outgoingInvites.data ?? [])
+      .filter((invite) => invite.status === "pending")
+      .map((invite) => invite.userId),
+  );
 
   /* Gap-driven recommendations (server: getPeopleMatchesForTeam). */
   const recs = useQuery({
@@ -62,7 +72,6 @@ export function InviteDialog({
       }),
     onSuccess: (_d, vars) => {
       toast.success("Invite sent!");
-      setInvited((prev) => new Set([...prev, vars.userId]));
       void queryClient.invalidateQueries({ queryKey: ["team-invites", teamId] });
     },
     onError: (err: Error) => toast.error(err.message),
@@ -110,7 +119,8 @@ export function InviteDialog({
                     person={person}
                     matchScore={rec.matchScore}
                     why={rec.why}
-                    invited={invited.has(person.id)}
+                    invited={pendingInviteUserIds.has(person.id)}
+                    inviting={invite.isPending && invite.variables?.userId === person.id}
                     onInvite={() => invite.mutate({ userId: person.id })}
                   />
                 ))}
@@ -136,7 +146,8 @@ export function InviteDialog({
                     <CandidateRow
                       key={p.id}
                       person={p}
-                      invited={invited.has(p.id)}
+                      invited={pendingInviteUserIds.has(p.id)}
+                      inviting={invite.isPending && invite.variables?.userId === p.id}
                       onInvite={() => invite.mutate({ userId: p.id })}
                     />
                   ))}
@@ -155,12 +166,14 @@ function CandidateRow({
   matchScore,
   why,
   invited,
+  inviting,
   onInvite,
 }: {
   person: PersonCardDTO;
   matchScore?: number;
   why?: string;
   invited: boolean;
+  inviting: boolean;
   onInvite: () => void;
 }) {
   return (
@@ -182,8 +195,8 @@ function CandidateRow({
         )}
       </div>
       {matchScore !== undefined && <MatchRing score={matchScore} size={40} />}
-      <Button size="sm" variant={invited ? "outline" : "default"} disabled={invited} onClick={onInvite}>
-        {invited ? "Sent" : "Invite"}
+      <Button size="sm" variant={invited ? "outline" : "default"} disabled={invited || inviting} onClick={onInvite}>
+        {invited ? "Sent" : inviting ? "Sending..." : "Invite"}
       </Button>
     </div>
   );

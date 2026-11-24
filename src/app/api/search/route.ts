@@ -139,7 +139,7 @@ export async function GET(req: NextRequest) {
           const sourceText = profileEmbeddingText({
             bio: person.bio,
             text: person.bio,
-            skills: person.topSkills.map((skill) => skill.slug),
+            skills: (person.skills ?? person.topSkills).map((skill) => skill.slug),
             roles: person.roles.map((role) => role.slug),
             experienceLevel: person.experienceLevel,
             commitment: person.commitment,

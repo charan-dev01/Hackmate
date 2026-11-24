@@ -113,7 +113,15 @@ export function parseSearchQuery(raw: string): ParsedQuery {
   const explicitSkills = [...explicitBySlug.values()].sort((a, b) => a.localeCompare(b));
   const consumed = new Set(explicitSkills.flatMap((skill) => normalizedQuery(skill).split(" ")));
   let positiveText = normalized;
-  for (const range of exclusionRanges.sort((left, right) => right.start - left.start)) {
+  const mergedExclusionRanges = exclusionRanges
+    .sort((left, right) => left.start - right.start)
+    .reduce<Array<{ start: number; end: number }>>((merged, range) => {
+      const previous = merged.at(-1);
+      if (previous && range.start <= previous.end) previous.end = Math.max(previous.end, range.end);
+      else merged.push({ ...range });
+      return merged;
+    }, []);
+  for (const range of mergedExclusionRanges.sort((left, right) => right.start - left.start)) {
     positiveText = `${positiveText.slice(0, range.start)} ${positiveText.slice(range.end)}`;
   }
   const terms = positiveText.split(" ").filter((term) => term.length > 1 && !consumed.has(term) && !/^\d+$/.test(term));

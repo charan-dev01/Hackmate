@@ -11,6 +11,7 @@ const DIGEST_CLAIM_TIMEOUT_MS = 15 * 60 * 1000;
 const MATCH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const MONTHLY_EMAIL_QUOTA = Number(process.env.MATCH_EMAIL_MONTHLY_QUOTA ?? 3000);
 const INVITE_EXPIRY_MS = Number(process.env.INVITE_EXPIRY_DAYS ?? 7) * 24 * 60 * 60 * 1000;
+let proactiveRunPromise: Promise<{ created: number; digestsSent: number }> | null = null;
 
 export async function cleanupStaleInvitations() {
   const now = new Date();
@@ -226,19 +227,37 @@ async function processDigests() {
     });
     if (delivery.delivered) {
       await db.update(schema.userMatches).set({ digestSentAt: now, digestProviderId: delivery.providerMessageId }).where(inArray(schema.userMatches.id, claimed.map((m) => m.id)));
-      await db.update(schema.invites).set({ digestSentAt: now, digestProviderId: delivery.providerMessageId }).where(inArray(schema.invites.id, claimedInvites.map((i) => i.id)));
+      await db.update(schema.invites).set({ digestSentAt: now, digestProviderId: delivery.providerMessageId }).where(and(
+        inArray(schema.invites.id, claimedInvites.map((i) => i.id)),
+        eq(schema.invites.status, "pending"),
+        eq(schema.invites.digestClaimedAt, now),
+      ));
       await db.update(schema.users).set({ lastMatchDigestAt: now }).where(eq(schema.users.id, user.id));
       sent += 1;
     } else {
       await releaseQuota(month);
       await db.update(schema.userMatches).set({ digestClaimedAt: null }).where(inArray(schema.userMatches.id, claimed.map((m) => m.id)));
-      await db.update(schema.invites).set({ digestClaimedAt: null }).where(inArray(schema.invites.id, claimedInvites.map((i) => i.id)));
+      await db.update(schema.invites).set({ digestClaimedAt: null }).where(and(
+        inArray(schema.invites.id, claimedInvites.map((i) => i.id)),
+        eq(schema.invites.status, "pending"),
+        eq(schema.invites.digestClaimedAt, now),
+      ));
     }
   }
   return sent;
 }
 
 export async function runProactiveMatching() {
+  if (proactiveRunPromise) return proactiveRunPromise;
+  proactiveRunPromise = executeProactiveMatching();
+  try {
+    return await proactiveRunPromise;
+  } finally {
+    proactiveRunPromise = null;
+  }
+}
+
+async function executeProactiveMatching(): Promise<{ created: number; digestsSent: number }> {
   const now = new Date();
   const users = await db.select({ id: schema.users.id }).from(schema.users)
     .where(eq(schema.users.openToOpportunities, true));

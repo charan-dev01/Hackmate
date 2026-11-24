@@ -191,6 +191,9 @@ export async function people(filters: PeopleFilters = {}): Promise<PersonCardDTO
     matchDigestEmails: u.matchDigestEmails,
     emergencyAvailable: !!u.emergencyAvailableUntil && u.emergencyAvailableUntil > new Date(),
     githubUsername: u.githubUsername,
+    skills: (skillsByUser.get(u.id) ?? [])
+      .sort((a, b) => b.level - a.level)
+      .map((s) => ({ id: s.skillId, slug: s.slug, name: s.name, category: s.category as SkillCategory, level: s.level })),
     topSkills: (skillsByUser.get(u.id) ?? [])
       .sort((a, b) => b.level - a.level)
       .slice(0, 6)

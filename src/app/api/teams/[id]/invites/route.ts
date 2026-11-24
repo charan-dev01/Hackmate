@@ -173,22 +173,35 @@ export async function PATCH(
   const action = body.action as "accepted" | "declined" | "revoked";
   if (!["accepted", "declined", "revoked"].includes(action)) return fail("action must be accepted|declined|revoked");
 
+  const detail = await getTeamDetail(id, user.id);
+  if (!detail) return fail("Team not found", 404);
+  if (action === "revoked" && !detail.viewer.isAdmin) {
+    return fail("Only team admins can revoke invites", 403);
+  }
+
   const targetUserId = action === "revoked" && typeof body.userId === "string" ? body.userId : user.id;
   const [invite] = await db
     .select()
     .from(schema.invites)
-    .where(and(eq(schema.invites.teamId, id), eq(schema.invites.userId, targetUserId)))
+    .where(and(
+      eq(schema.invites.teamId, id),
+      eq(schema.invites.userId, targetUserId),
+      eq(schema.invites.status, "pending"),
+    ))
     .limit(1);
   if (!invite || invite.status !== "pending") return fail("No pending invite", 404);
-
-  const detail = await getTeamDetail(id, user.id);
-  if (!detail) return fail("Team not found", 404);
 
   const inviteDeadline = invite.expiresAt ?? new Date(invite.createdAt.getTime() + Number(process.env.INVITE_EXPIRY_DAYS ?? 7) * 24 * 60 * 60 * 1000);
   if (inviteDeadline <= new Date()) {
     const expiredRows = await db.update(schema.invites)
       .set({ status: "expired", expiresAt: inviteDeadline })
-      .where(and(eq(schema.invites.id, invite.id), eq(schema.invites.status, "pending")))
+      .where(and(
+        eq(schema.invites.id, invite.id),
+        eq(schema.invites.status, "pending"),
+        invite.expiresAt
+          ? eq(schema.invites.expiresAt, invite.expiresAt)
+          : isNull(schema.invites.expiresAt),
+      ))
       .returning({ id: schema.invites.id });
     if (expiredRows.length === 0) return fail("Invite is no longer pending", 409);
     await db.update(schema.notifications).set({ read: true }).where(eq(schema.notifications.inviteId, invite.id));
@@ -199,7 +212,13 @@ export async function PATCH(
     if (!detail.viewer.isAdmin) return fail("Only team admins can revoke invites", 403);
     const revokedRows = await db.update(schema.invites)
       .set({ status: "revoked" })
-      .where(and(eq(schema.invites.id, invite.id), eq(schema.invites.status, "pending")))
+      .where(and(
+        eq(schema.invites.id, invite.id),
+        eq(schema.invites.status, "pending"),
+        invite.expiresAt
+          ? eq(schema.invites.expiresAt, invite.expiresAt)
+          : isNull(schema.invites.expiresAt),
+      ))
       .returning({ id: schema.invites.id });
     if (revokedRows.length === 0) return fail("Invite is no longer pending", 409);
     await db.update(schema.notifications).set({ read: true }).where(eq(schema.notifications.inviteId, invite.id));
@@ -209,21 +228,46 @@ export async function PATCH(
   if (action === "declined") {
     const declinedRows = await db.update(schema.invites)
       .set({ status: "declined" })
-      .where(and(eq(schema.invites.id, invite.id), eq(schema.invites.status, "pending")))
+      .where(and(
+        eq(schema.invites.id, invite.id),
+        eq(schema.invites.status, "pending"),
+        invite.expiresAt
+          ? eq(schema.invites.expiresAt, invite.expiresAt)
+          : isNull(schema.invites.expiresAt),
+      ))
       .returning({ id: schema.invites.id });
     if (declinedRows.length === 0) return fail("Invite is no longer pending", 409);
     await db.update(schema.notifications).set({ read: true }).where(eq(schema.notifications.inviteId, invite.id));
     return ok({ status: "declined" });
   }
 
+  let acceptedInviterId = invite.inviterId;
   try {
     await db.transaction(async (tx) => {
       const [lockedTeam] = await tx
-        .select({ status: schema.teams.status, targetSize: schema.teams.targetSize })
+        .select({ status: schema.teams.status, targetSize: schema.teams.targetSize, hackathonId: schema.teams.hackathonId })
         .from(schema.teams)
         .where(eq(schema.teams.id, id))
         .for("update");
       if (!lockedTeam || lockedTeam.status !== "recruiting") throw new Error("Team isn't recruiting anymore");
+      await tx.select({ id: schema.users.id })
+        .from(schema.users)
+        .where(eq(schema.users.id, user.id))
+        .for("update");
+      if (lockedTeam.hackathonId) {
+        const [otherTeam] = await tx
+          .select({ teamId: schema.teamMembers.teamId })
+          .from(schema.teamMembers)
+          .innerJoin(schema.teams, eq(schema.teamMembers.teamId, schema.teams.id))
+          .where(and(
+            eq(schema.teamMembers.userId, user.id),
+            eq(schema.teams.hackathonId, lockedTeam.hackathonId),
+            ne(schema.teams.status, "disbanded"),
+            ne(schema.teamMembers.teamId, id),
+          ))
+          .limit(1);
+        if (otherTeam) throw new Error("You already belong to another team for this hackathon");
+      }
       const memberRows = await tx
         .select({ userId: schema.teamMembers.userId })
         .from(schema.teamMembers)
@@ -232,21 +276,37 @@ export async function PATCH(
       const [locked] = await tx
         .select()
         .from(schema.invites)
-        .where(and(eq(schema.invites.id, invite.id), eq(schema.invites.status, "pending")))
+        .where(and(
+          eq(schema.invites.id, invite.id),
+          eq(schema.invites.status, "pending"),
+          invite.expiresAt
+            ? eq(schema.invites.expiresAt, invite.expiresAt)
+            : isNull(schema.invites.expiresAt),
+        ))
         .for("update");
       if (!locked) throw new Error("Invite is no longer pending");
+      acceptedInviterId = locked.inviterId;
       const lockedDeadline = locked.expiresAt ?? new Date(locked.createdAt.getTime() + Number(process.env.INVITE_EXPIRY_DAYS ?? 7) * 24 * 60 * 60 * 1000);
       if (lockedDeadline <= new Date()) throw new Error("Invite has expired");
+      if (locked.inviterId !== invite.inviterId || locked.roleId !== invite.roleId) {
+        throw new Error("Invite changed before it could be accepted");
+      }
       if (memberRows.some((member) => member.userId === user.id)) throw new Error("You are already on this team");
       const acceptedRows = await tx.update(schema.invites)
         .set({ status: "accepted" })
-        .where(and(eq(schema.invites.id, invite.id), eq(schema.invites.status, "pending")))
+        .where(and(
+          eq(schema.invites.id, invite.id),
+          eq(schema.invites.status, "pending"),
+          invite.expiresAt
+            ? eq(schema.invites.expiresAt, invite.expiresAt)
+            : isNull(schema.invites.expiresAt),
+        ))
         .returning({ id: schema.invites.id });
       if (acceptedRows.length === 0) throw new Error("Invite is no longer pending");
       await tx.insert(schema.teamMembers).values({
         teamId: id,
         userId: user.id,
-        roleId: invite.roleId ?? null,
+        roleId: locked.roleId ?? null,
       });
       await tx.update(schema.notifications).set({ read: true }).where(eq(schema.notifications.inviteId, invite.id));
       if (memberRows.length + 1 >= lockedTeam.targetSize) {
@@ -266,7 +326,7 @@ export async function PATCH(
     .where(eq(schema.users.id, user.id));
 
   await db.insert(schema.notifications).values({
-    userId: invite.inviterId,
+    userId: acceptedInviterId,
     type: "team_update",
     title: `${user.name ?? "Someone"} accepted your invite to ${detail.name}`,
     link: `/teams/${id}`,
