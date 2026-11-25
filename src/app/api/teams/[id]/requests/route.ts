@@ -202,21 +202,23 @@ export async function PATCH(
         .where(eq(schema.users.id, request.userId))
         .for("update");
 
-      if (lockedTeam.hackathonId) {
-        const [otherTeam] = await tx
-          .select({ teamId: schema.teamMembers.teamId })
-          .from(schema.teamMembers)
-          .innerJoin(schema.teams, eq(schema.teamMembers.teamId, schema.teams.id))
-          .where(and(
-            eq(schema.teamMembers.userId, request.userId),
-            eq(schema.teams.hackathonId, lockedTeam.hackathonId),
-            ne(schema.teams.status, "disbanded"),
-            ne(schema.teamMembers.teamId, id),
-          ))
-          .limit(1);
-        if (otherTeam) {
-          throw new Error("This user already belongs to another team for this hackathon");
-        }
+      const [otherTeam] = await tx
+        .select({ teamId: schema.teamMembers.teamId })
+        .from(schema.teamMembers)
+        .innerJoin(schema.teams, eq(schema.teamMembers.teamId, schema.teams.id))
+        .where(and(
+          eq(schema.teamMembers.userId, request.userId),
+          lockedTeam.hackathonId
+            ? eq(schema.teams.hackathonId, lockedTeam.hackathonId)
+            : isNull(schema.teams.hackathonId),
+          ne(schema.teams.status, "disbanded"),
+          ne(schema.teamMembers.teamId, id),
+        ))
+        .limit(1);
+      if (otherTeam) {
+        throw new Error(lockedTeam.hackathonId
+          ? "This user already belongs to another team for this hackathon"
+          : "This user already belongs to an idea-first team");
       }
 
       const members = await tx.select({ userId: schema.teamMembers.userId })
