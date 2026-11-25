@@ -182,20 +182,75 @@ export async function PATCH(
     return ok({ status: "declined" });
   }
 
-  /* Accept: check capacity. */
-  if (detail.memberCount >= detail.targetSize) return fail("Team is now full", 409);
+  try {
+    await db.transaction(async (tx) => {
+      const [lockedTeam] = await tx
+        .select({
+          status: schema.teams.status,
+          targetSize: schema.teams.targetSize,
+          hackathonId: schema.teams.hackathonId,
+        })
+        .from(schema.teams)
+        .where(eq(schema.teams.id, id))
+        .for("update");
+      if (!lockedTeam || lockedTeam.status !== "recruiting") {
+        throw new Error("Team isn't recruiting anymore");
+      }
 
-  await db.update(schema.joinRequests).set({ status: "accepted" }).where(eq(schema.joinRequests.id, requestId));
-  await db.insert(schema.teamMembers).values({
-    teamId: id,
-    userId: request.userId,
-    roleId: request.roleId ?? null,
-  });
+      await tx.select({ id: schema.users.id })
+        .from(schema.users)
+        .where(eq(schema.users.id, request.userId))
+        .for("update");
 
-  /* Maybe close recruitment. */
-  if (detail.memberCount + 1 >= detail.targetSize) {
-    await db.update(schema.teams).set({ status: "full" }).where(eq(schema.teams.id, id));
+      if (lockedTeam.hackathonId) {
+        const [otherTeam] = await tx
+          .select({ teamId: schema.teamMembers.teamId })
+          .from(schema.teamMembers)
+          .innerJoin(schema.teams, eq(schema.teamMembers.teamId, schema.teams.id))
+          .where(and(
+            eq(schema.teamMembers.userId, request.userId),
+            eq(schema.teams.hackathonId, lockedTeam.hackathonId),
+            ne(schema.teams.status, "disbanded"),
+            ne(schema.teamMembers.teamId, id),
+          ))
+          .limit(1);
+        if (otherTeam) {
+          throw new Error("This user already belongs to another team for this hackathon");
+        }
+      }
+
+      const members = await tx.select({ userId: schema.teamMembers.userId })
+        .from(schema.teamMembers)
+        .where(eq(schema.teamMembers.teamId, id));
+      if (members.length >= lockedTeam.targetSize) throw new Error("Team is now full");
+      if (members.some((member) => member.userId === request.userId)) {
+        throw new Error("This user is already on the team");
+      }
+
+      const accepted = await tx.update(schema.joinRequests)
+        .set({ status: "accepted" })
+        .where(and(
+          eq(schema.joinRequests.id, requestId),
+          eq(schema.joinRequests.teamId, id),
+          eq(schema.joinRequests.status, "pending"),
+        ))
+        .returning({ id: schema.joinRequests.id });
+      if (accepted.length === 0) throw new Error("Request is no longer pending");
+
+      await tx.insert(schema.teamMembers).values({
+        teamId: id,
+        userId: request.userId,
+        roleId: request.roleId ?? null,
+      });
+
+      if (members.length + 1 >= lockedTeam.targetSize) {
+        await tx.update(schema.teams).set({ status: "full" }).where(eq(schema.teams.id, id));
+      }
+    });
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : "Could not accept request", 409);
   }
+
   await db
     .update(schema.users)
     .set({ recruitmentStatus: "team_full", updatedAt: new Date() })
